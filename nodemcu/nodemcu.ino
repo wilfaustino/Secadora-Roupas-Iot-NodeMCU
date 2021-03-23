@@ -6,13 +6,17 @@
 //Configs Wifi
 const char* WIFI_REDE = "FaustinoNet";
 const char* SENHA_WIFI = "password";
+bool modoOffline = false;
 
+//Configs rede
 IPAddress ip(192,168,15,80);
 IPAddress gateway(192,168,15,1);
 IPAddress subnet(255,255,255,0);
 
-#define DHTPIN 0 //PINO DIGITAL UTILIZADO PELO DHT22
-#define DHTTYPE DHT22 //DEFINE O MODELO DO SENSOR (DHT22 / AM2302)
+//Configs do sensor de temperatura e umidade
+#define DHTPIN 0 //Pino digital do DHT22
+#define DHTTYPE DHT22 //Modelo do sensor DHT22 ou AM2302
+DHT dht(DHTPIN, DHTTYPE); //Inicia o sensor
 
 //Wifi Server
 WiFiServer server(80);
@@ -22,8 +26,6 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 //Instancia o Wifi
 WiFiClient espClient;
-
-DHT dht(DHTPIN, DHTTYPE);
 
 void setup(){
 
@@ -42,37 +44,51 @@ void setup(){
 
     //Beep
     beep();
+    
 }
 
 void iniciarLCD(){
-    lcd.begin();
+    lcd.begin(); //Inicia o LCD
     lcd.backlight(); //Ligar a luz do fundo do LCD
 }
 
 void manterWifi(){
 
-    //Verifica se já está conectado
-    if(WiFi.status() == WL_CONNECTED)
+    //Verifica se já está conectado ou se está em modo offiline
+    if(WiFi.status() == WL_CONNECTED || modoOffline == true){
         return;
+    }
 
     //Iniciar o procedimento de desconexão
     WiFi.disconnect();
     
-    //Conectar
+    //Conectar à rede WIFI
     escreveLCD(1,"Conectando...");
     escreveLCD(2,WIFI_REDE);
     WiFi.config(ip, gateway, subnet);
-    WiFi.begin(WIFI_REDE,SENHA_WIFI);
+    WiFi.begin(WIFI_REDE, SENHA_WIFI);
 
-    while(WiFi.status() != WL_CONNECTED){
-        delay(100);
+    //Timout da conexão
+    int delay_wifi = 1000; //ms
+    int timeout = delay_wifi * 15; //ms
+
+    //Avalia se já está conectado ou timout foi atingido
+    while(WiFi.status() != WL_CONNECTED && timeout > 0){
+        timeout -= delay_wifi;
+        delay(delay_wifi);
     }
 
-    escreveLCD(1,"Conectado!!");
-    escreveLCD(2, ipToString(WiFi.localIP()));
-
-    //Iniciar o servidor
-    server.begin();
+    //Entrar no modo offline
+    if(timeout <= 0){
+        modoOffline = true;
+        escreveLCD(1,"Wifi timeout!");
+    } else {
+        escreveLCD(1,"Conectado!!");
+        escreveLCD(2, ipToString(WiFi.localIP()));
+            
+        //Iniciar o servidor
+        server.begin();
+    }
 
     delay(1000);
 
@@ -82,17 +98,19 @@ void manterWifi(){
 
 void escreveLCD(int linha, String str){
 
+    //Limpa a linha
     str = (String) str + "                ";
     
     int j=0;
     
     for(int i=0;i<16;i++){
         lcd.setCursor(j++,linha-1);
-        if(((String)str[i]+str[i+1])=="º"){
+        if(((String)str[i]+str[i+1])=="º"){ //Correção para o caracter º
             lcd.print((char)223);
             i++;
-        } else
+        } else{
             lcd.print(str[i]);
+        }
     }
     
 }
@@ -114,18 +132,31 @@ void beep(){
     noTone(15);    
 }
 
-void lerTemperatura(){
+void lerDados(){
 
-  escreveLCD(1, (String)"Temp: " + (String)dht.readTemperature() + "ºC");
-  escreveLCD(2, (String)"Umidade: " + (String)dht.readHumidity() + "%");
+    char buffer[10];
 
+    //Temperatura
+    sprintf(buffer, "'%.1f'", dht.readTemperature());
+    String temperatura = String(buffer);
+    temperatura.replace("'","");
+
+    //Umidade
+    sprintf(buffer, "'%.1f'", dht.readHumidity());
+    String umidade = String(buffer);
+    umidade.replace("'","");
+
+    //Escrever no LCD
+    escreveLCD(1, "Temp: " + temperatura + " ºC");
+    escreveLCD(2, "Umidade: " + umidade + " %");
+    
 }
 
 void loop(){
 
     manterWifi();
 
-    lerTemperatura();
+    lerDados();
 
     WiFiClient client = server.available();
     if(client){
@@ -149,6 +180,6 @@ void loop(){
       return;
     }
 
-    delay(2500);
+    delay(1800);
     
 }
